@@ -1,0 +1,151 @@
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <string>
+#include <random>
+#include <iomanip>
+#include <algorithm>
+
+// ANSI color codes
+#define RESET   "\033[0m"
+#define RED     "\033[31m"
+#define GREEN   "\033[32m"
+#define YELLOW  "\033[33m"
+
+struct BikeRecord {
+    int bike_id;
+    std::string date;
+    int total_rides;
+    double avg_trip_duration;
+    double distance_travelled_km;
+    double battery_level;
+    double tire_pressure;
+    double chain_wear_level;
+    double brake_pad_thickness;
+    double weather_temp;
+    double humidity;
+    double risk_score;
+    int failure_within_7_days;
+};
+
+// Generate date string
+std::string generate_date(int day_offset) {
+    int year = 2024;
+    int month = 1 + (day_offset / 30);
+    int day = 1 + (day_offset % 30);
+    if(month>12) month=12;
+    char buffer[11];
+    sprintf(buffer,"%04d-%02d-%02d",year,month,day);
+    return std::string(buffer);
+}
+
+// Function to display ASCII color-coded dashboard
+void display_dashboard_color(const std::vector<BikeRecord>& dataset){
+    int total_bikes = dataset.size();
+    int low=0, medium=0, high=0;
+    for(auto &b: dataset){
+        if(b.risk_score<=0.4) low++;
+        else if(b.risk_score<=0.7) medium++;
+        else high++;
+    }
+
+    std::cout << "\n========== Public Bike Sharing Dashboard ==========\n";
+    std::cout << "Total bikes in fleet: " << total_bikes << "\n";
+    std::cout << GREEN << "Low risk (<=0.4): " << low << RESET << "\n";
+    std::cout << YELLOW << "Medium risk (0.4-0.7): " << medium << RESET << "\n";
+    std::cout << RED << "High risk (>0.7): " << high << RESET << "\n\n";
+
+    std::cout << "Fleet risk distribution (color-coded bars):\n";
+    int max_bar = 50;
+    auto print_bar = [&](int count, std::string color){
+        std::cout << color;
+        for(int i=0;i<count;i++) std::cout << "#";
+        std::cout << RESET;
+    };
+
+    int low_bar = low*max_bar/total_bikes;
+    int med_bar = medium*max_bar/total_bikes;
+    int high_bar = high*max_bar/total_bikes;
+
+    std::cout << "0-0.4   | "; print_bar(low_bar,GREEN); std::cout << " (" << low << ")\n";
+    std::cout << "0.4-0.7 | "; print_bar(med_bar,YELLOW); std::cout << " (" << medium << ")\n";
+    std::cout << "0.7-1.0 | "; print_bar(high_bar,RED); std::cout << " (" << high << ")\n";
+
+    std::cout << "\nTop 10 bikes at highest risk:\n";
+    auto sorted_dataset = dataset;
+    std::sort(sorted_dataset.begin(), sorted_dataset.end(),
+              [](const BikeRecord &a, const BikeRecord &b){return a.risk_score>b.risk_score;});
+    std::cout << "BikeID | Risk | Predicted Failure\n";
+    for(int i=0;i<10 && i<sorted_dataset.size();i++){
+        std::string color = (sorted_dataset[i].risk_score>0.7)?RED:
+                            (sorted_dataset[i].risk_score>0.4)?YELLOW:GREEN;
+        std::cout << sorted_dataset[i].bike_id << " | "
+                  << color << std::fixed << std::setprecision(2) << sorted_dataset[i].risk_score << RESET
+                  << " | " << sorted_dataset[i].failure_within_7_days << "\n";
+    }
+    std::cout << "===================================================\n\n";
+}
+
+int main(){
+    int rows=5000;
+    int bikes=800;
+    std::vector<BikeRecord> dataset;
+    dataset.reserve(rows);
+
+    std::mt19937 rng(42);
+    std::uniform_int_distribution<int> bike_dist(1000,1000+bikes);
+    std::uniform_int_distribution<int> day_dist(0,364);
+    std::poisson_distribution<int> rides_dist(4);
+    std::normal_distribution<double> duration_dist(12,6);
+    std::normal_distribution<double> battery_dist(60,25);
+    std::normal_distribution<double> tire_dist(38,6);
+    std::normal_distribution<double> chain_dist(30,20);
+    std::normal_distribution<double> brake_dist(6,2.5);
+    std::normal_distribution<double> temp_dist(18,8);
+    std::normal_distribution<double> humidity_dist(60,20);
+    std::uniform_real_distribution<double> dist_factor(0.5,3.0);
+    std::uniform_real_distribution<double> prob_dist(0.0,1.0);
+
+    for(int i=0;i<rows;i++){
+        BikeRecord b;
+        b.bike_id=bike_dist(rng);
+        b.date=generate_date(day_dist(rng));
+        b.total_rides=rides_dist(rng);
+        b.avg_trip_duration=std::max(1.0,duration_dist(rng));
+        b.distance_travelled_km=std::max(0.1,b.total_rides*dist_factor(rng)*(b.avg_trip_duration/15.0));
+        b.battery_level=std::min(100.0,std::max(0.0,battery_dist(rng)));
+        b.tire_pressure=std::min(60.0,std::max(20.0,tire_dist(rng)));
+        b.chain_wear_level=std::min(100.0,std::max(0.0,chain_dist(rng)));
+        b.brake_pad_thickness=std::min(12.0,std::max(1.0,brake_dist(rng)));
+        b.weather_temp=temp_dist(rng);
+        b.humidity=std::min(100.0,std::max(10.0,humidity_dist(rng)));
+
+        b.risk_score=0.35*(b.total_rides/10.0)+0.30*(b.chain_wear_level/100.0)+
+                     0.20*(1-(b.brake_pad_thickness/12.0))+0.10*(1-(b.battery_level/100.0))+
+                     0.05*(abs(b.weather_temp-5)/30.0);
+        if(b.risk_score>0.95) b.risk_score=0.95;
+        b.failure_within_7_days=(prob_dist(rng)<b.risk_score)?1:0;
+
+        dataset.push_back(b);
+    }
+
+    // Save CSV
+    std::ofstream fout("predictive_maintenance_dashboard_color.csv");
+    fout << "bike_id,date,total_rides,avg_trip_duration,distance_travelled_km,battery_level,"
+            "tire_pressure,chain_wear_level,brake_pad_thickness,weather_temp,humidity,risk_score,failure_within_7_days\n";
+    for(auto &b: dataset){
+        fout << b.bike_id << "," << b.date << "," << b.total_rides << ","
+             << std::fixed << std::setprecision(2) << b.avg_trip_duration << ","
+             << b.distance_travelled_km << "," << b.battery_level << "," << b.tire_pressure << ","
+             << b.chain_wear_level << "," << b.brake_pad_thickness << "," << b.weather_temp << ","
+             << b.humidity << "," << b.risk_score << "," << b.failure_within_7_days << "\n";
+    }
+    fout.close();
+    std::cout << "CSV dataset saved to predictive_maintenance_dashboard_color.csv\n";
+
+    // Display color-coded dashboard
+    display_dashboard_color(dataset);
+
+    return 0;
+}
+
